@@ -17,13 +17,13 @@ pipeline {
 
     stage('Install'){ 
       steps { 
-        sh 'npm ci' 
+        sh 'npm ci'
       }
    }
 
     stage('Test'){ 
       steps { 
-        sh 'npm test || true' 
+        sh 'npm test || true'
       } 
     }
 
@@ -35,7 +35,7 @@ pipeline {
 
     stage('Deploy') {
       steps {
-        sshagent(credentials: ['ec2-ssh-key']) {
+        sshagent(credentials: ['SSH key for deployment EC2']) {
           sh """
             ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} "./deploy.sh"
           """

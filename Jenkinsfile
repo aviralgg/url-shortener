@@ -32,12 +32,12 @@ pipeline {
         sh 'docker build -t url-shortener:latest .' 
       } 
     }
-    
+
     stage('Deploy') {
       steps {
         sshagent(credentials: ['ec2-ssh-key']) {
           sh """
-            ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} "./deploy.sh"
+            ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} "./url-shortener/deploy.sh"
           """
         }
       }

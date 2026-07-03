@@ -19,7 +19,7 @@ pipeline {
       steps { 
         sh 'npm ci'
       }
-   }
+    }
 
     stage('Test'){ 
       steps { 
@@ -27,6 +27,12 @@ pipeline {
       } 
     }
 
+    stage('Build'){ 
+      steps { 
+        sh 'docker build -t url-shortener:latest .' 
+      } 
+    }
+    
     stage('Deploy') {
       steps {
         sshagent(credentials: ['ec2-ssh-key']) {

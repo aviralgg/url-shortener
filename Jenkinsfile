@@ -3,7 +3,7 @@ pipeline {
   agent any
 
   environment {
-    DEPLOY_HOST = "3.239.71.248"
+    DEPLOY_HOST = "172.31.4.222"
     DEPLOY_USER = "ubuntu"
   }
 

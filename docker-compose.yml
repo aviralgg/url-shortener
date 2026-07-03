@@ -1,0 +1,157 @@
+# =============================================================================
+# ShortLink — Docker Compose
+# =============================================================================
+#
+# WHAT IS THIS?
+#   One file that starts ALL services together: database, cache, API, worker.
+#
+# QUICK START
+#   1. cp .env.docker.sample .env.docker
+#   2. docker compose up --build        # foreground (see logs)
+#      docker compose up --build -d     # background (detached)
+#   3. Open http://localhost:3000/health
+#
+# USEFUL COMMANDS
+#   docker compose ps                   # status of all containers
+#   docker compose logs -f api          # follow API logs
+#   docker compose logs -f worker       # follow worker logs
+#   docker compose down                 # stop everything (keeps data)
+#   docker compose down -v              # stop AND delete database data
+#   docker compose exec db psql -U postgres -d shortlink  # open Postgres shell
+#
+# BEFORE YOU START
+#   Stop any local `npm start` on port 3000 — only one process can use that port.
+#
+# NETWORKING (beginner tip)
+#   Containers on "shortlink-net" can reach each other by SERVICE NAME:
+#     api  → connects to "db" and "redis" (not localhost)
+#   "ports: 3000:3000" on api publishes the API to YOUR machine at localhost:3000
+#
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database
+  # Stores users, URLs, analytics
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine          # pre-built image from Docker Hub
+    container_name: shortlink-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres      # change in production
+      POSTGRES_DB: shortlink
+    volumes:
+      - db-data:/var/lib/postgresql/data   # persist data across restarts
+    networks:
+      - shortlink-net
+    healthcheck:
+      # Compose waits until this passes before starting api/worker
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d shortlink']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis cache + BullMQ job queue backend
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: shortlink-redis
+    command: redis-server --appendonly yes   # persist queue/cache to disk
+    volumes:
+      - redis-data:/data
+    networks:
+      - shortlink-net
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # ShortLink API (Express server)
+  # Built from Dockerfile in this folder
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .                       # folder containing Dockerfile
+      dockerfile: Dockerfile
+    container_name: shortlink-api
+    env_file:
+      - .env.docker                      # copy from .env.docker.sample first
+    depends_on:
+      db:
+        condition: service_healthy       # wait until Postgres is ready
+      redis:
+        condition: service_healthy       # wait until Redis is ready
+    expose:
+      - "3000"                      # host:container — expose 3000 for nginx
+    networks:
+      - shortlink-net
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s                 # allow time for DB migrations on first boot
+
+  # ---------------------------------------------------------------------------
+  # Analytics worker (BullMQ consumer)
+  # Same image as api, different start command
+  # Processes click analytics in the background after redirects
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shortlink-worker
+    command: ['node', 'src/workers/analytics.worker.js']   # override Dockerfile CMD
+    env_file:
+      - .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy     # ensures migrations ran before worker starts
+    networks:
+      - shortlink-net
+    restart: unless-stopped  
+    
+  nginx:
+    image: nginx:alpine
+    container_name: shortlink-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - shortlink-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# -----------------------------------------------------------------------------
+# Named volumes — data survives "docker compose down"
+# Wiped only with "docker compose down -v"
+# -----------------------------------------------------------------------------
+volumes:
+  db-data:
+  redis-data:
+
+# -----------------------------------------------------------------------------
+# Private network — all services can talk to each other by name (db, redis, api)
+# -----------------------------------------------------------------------------
+networks:
+  shortlink-net:
+    driver: bridge

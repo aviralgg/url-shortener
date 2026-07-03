@@ -27,15 +27,9 @@ pipeline {
       } 
     }
 
-    stage('Build'){ 
-      steps { 
-        sh 'docker build -t url-shortener:latest .' 
-      } 
-    }
-
     stage('Deploy') {
       steps {
-        sshagent(credentials: ['SSH key for deployment EC2']) {
+        sshagent(credentials: ['ec2-ssh-key']) {
           sh """
             ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} "./deploy.sh"
           """
